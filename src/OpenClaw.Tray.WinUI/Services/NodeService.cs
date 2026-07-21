@@ -1940,6 +1940,11 @@ public sealed class NodeService : IDisposable, IAsyncDisposable
         }
         
         cancellationToken.ThrowIfCancellationRequested();
+        // Security: an instantaneous snapshot reaches the same screen contents as screen.record, so it
+        // must clear the same one-time consent gate. Previously screen.snapshot captured with no consent
+        // behind only a throttled toast, letting a connected gateway (or a prompt-injected agent)
+        // covertly screenshot the user. Consent is remembered per type, so this costs one prompt.
+        await EnsureRecordingConsentAsync(RecordingType.Screen, cancellationToken);
         // Notify user that screen capture is happening (throttled to avoid spam)
         var now = DateTime.Now;
         if ((now - _lastScreenCaptureNotification).TotalSeconds > 10)
@@ -2025,7 +2030,16 @@ public sealed class NodeService : IDisposable, IAsyncDisposable
         {
             throw new InvalidOperationException("Camera capture service not available");
         }
-        
+
+        // Security: a single webcam frame is as privacy-sensitive as camera.clip, so it must clear the
+        // same one-time consent gate. Previously camera.snap captured with no consent AND no indicator
+        // at all, letting a connected gateway (or a prompt-injected agent) covertly photograph the user.
+        await EnsureRecordingConsentAsync(RecordingType.Camera, cancellationToken);
+        RequestNodeToast(
+            "Webcam photo captured",
+            "A photo was just taken from your webcam by the connected agent.",
+            "node:camera-captured");
+
         try
         {
             return await _cameraCaptureService.SnapAsync(args, cancellationToken);
@@ -2093,6 +2107,14 @@ public sealed class NodeService : IDisposable, IAsyncDisposable
     
     private async Task<LocationResult> GetLocationAsync(LocationGetArgs args)
     {
+        // Security: location.get was fully silent. Surface a per-use indicator so a gateway cannot read
+        // the user's physical location without any trace. A one-time consent gate matching screen/camera
+        // (a RecordingType.Location + LocationConsentGiven flag) is the recommended follow-up.
+        RequestNodeToast(
+            "Location shared",
+            "Your device location was just read by the connected agent.",
+            "node:location-read");
+
         var geolocator = new global::Windows.Devices.Geolocation.Geolocator
         {
             DesiredAccuracy = args.Accuracy == "precise"
