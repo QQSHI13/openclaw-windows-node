@@ -1218,6 +1218,21 @@ public sealed class AppRefactorContractTests
     }
 
     [Fact]
+    public void SetupProgress_HidesEveryLocalAiOnlyGroupAndKeepsNonLocalPreviewActive()
+    {
+        var root = TestRepositoryPaths.GetRepositoryRoot();
+        var code = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "Pages", "ProgressPage.xaml.cs"));
+        var buildRows = ExtractMethod(code, "BuildStepRows");
+        var preview = ExtractMethod(code, "RenderProgressPreview");
+
+        Assert.Contains("IsLocalAiOnlyGroup(stepIds)", buildRows);
+        Assert.Contains("stepIds.All(stepId => stepId.Contains(\"local-ai\"", code);
+        Assert.Contains("localAiPreview ? \"local-ai-model\" : \"wsl-create\"", preview);
+        Assert.DoesNotContain("groupId.StartsWith(\"local-ai\"", buildRows);
+        Assert.DoesNotContain(": 3;", preview);
+    }
+
+    [Fact]
     public void SetupCompletion_PersistsStartupChoiceBeforeRestart()
     {
         var root = TestRepositoryPaths.GetRepositoryRoot();
@@ -1406,16 +1421,18 @@ public sealed class AppRefactorContractTests
         var source = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "Pages", "CapabilitiesPage.xaml.cs"));
         var xaml = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "Pages", "CapabilitiesPage.xaml"));
         Assert.Contains("LocalAiUnavailableDetailsButton", xaml);
-        Assert.Contains("Why Local AI is unavailable", source);
+        Assert.Contains("SetupLocalization.GetString(\"Onboarding_LocalAi_UnavailableDetailsDialogTitle\")", source);
         Assert.Contains("LocalAiInstallReviewCard.Visibility = Visibility.Visible", ExtractMethod(source, "ShowLocalAiUnavailable"));
         Assert.Contains("LocalAiAvailabilityReasons.Build", source);
         Assert.DoesNotContain("WslViability", source);
-        Assert.Contains("One or more Local AI requirements are unavailable.", xaml);
-        Assert.Matches(
-            new Regex(
-                "<InfoBar\\s+x:Name=\"LocalAiUnavailablePanel\"[^>]*>\\s*" +
-                "<StackPanel\\s+Orientation=\"Horizontal\"\\s+Spacing=\"8\"\\s+Margin=\"0,-12,0,12\">"),
-            xaml);
+        Assert.Contains("This PC does not meet one or more Local AI requirements.", xaml);
+        Assert.Contains("Title=\"Local AI is not available\"", xaml);
+        Assert.Contains("SetLocalAiOptionAvailability(isAvailable: false)", ExtractMethod(source, "ShowLocalAiUnavailable"));
+        Assert.Contains("Message=\"This PC does not meet one or more Local AI requirements.\"", xaml);
+        Assert.Contains("<InfoBar.ActionButton>", xaml);
+        Assert.True(
+            xaml.IndexOf("x:Name=\"LocalAiUnavailablePanel\"", StringComparison.Ordinal) <
+            xaml.IndexOf("x:Name=\"LocalAiInstallReviewCard\"", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1423,11 +1440,13 @@ public sealed class AppRefactorContractTests
     {
         var root = TestRepositoryPaths.GetRepositoryRoot();
         var source = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "Pages", "CapabilitiesPage.xaml.cs"));
+        var diagnostics = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.Shared", "Inference", "Catalog", "LocalInferenceEligibilityDiagnostics.cs"));
+        var resources = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.Tray.WinUI", "Strings", "en-us", "Resources.resw"));
 
         Assert.Contains("LocalInferenceEligibility.GetRequiredMemoryBytes(model) <= capacityBytes", source);
-        Assert.Contains("eligibility.RequiredTotalMemoryBytes", source);
-        Assert.Contains("eligibility.DetectedTotalMemoryBytes", source);
-        Assert.Contains("model weights, KV cache, and runtime workspace", source);
+        Assert.Contains("eligibility.RequiredTotalMemoryBytes", diagnostics);
+        Assert.Contains("eligibility.DetectedTotalMemoryBytes", diagnostics);
+        Assert.Contains("model weights, KV cache, and runtime workspace", resources);
         Assert.DoesNotContain("2 GiB runtime margin", source);
         Assert.DoesNotContain("HardwareProfile", source);
         Assert.DoesNotContain("RTX PRO 6000", source);
