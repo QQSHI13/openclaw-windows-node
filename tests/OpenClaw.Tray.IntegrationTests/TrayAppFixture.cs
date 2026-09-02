@@ -181,6 +181,8 @@ public sealed class TrayAppFixture : IAsyncLifetime
             AutoStart = false,
             GlobalHotkeyEnabled = false,
             ShowNotifications = false,
+            ScreenRecordingConsentGiven = true,
+            CameraRecordingConsentGiven = true,
             HasSeenActivityStreamTip = true,
             CaptureConsentTimeoutMs = 3000,
         };
