@@ -30,7 +30,6 @@ public sealed partial class CapabilitiesPage : Page
     private bool _localAiNetworkingConsentRequired;
     private HostHardwareInfo? _localAiHardware;
     private string? _localAiRecommendedModelId;
-    private long? _localAiSelectedGpuCapacityBytes;
     private WslGlobalConfigStatus? _localAiNetworkingStatus;
     private string _localAiUnavailableReason = string.Empty;
     private readonly LocalAiSetupAvailabilityCoordinator _localAiAvailability = new();
@@ -310,12 +309,9 @@ public sealed partial class CapabilitiesPage : Page
                 }
                 return;
             }
-            _localAiSelectedGpuCapacityBytes = deviceEligibility.DetectedTotalMemoryBytes;
-            _localAiRecommendedModelId = LocalModelCatalog.Models
-                .OrderByDescending(model => model.Weights.SizeBytes)
-                .FirstOrDefault(model =>
-                    _localAiSelectedGpuCapacityBytes is { } capacityBytes &&
-                    LocalInferenceEligibility.GetRequiredMemoryBytes(model) <= capacityBytes)?.Id;
+            _localAiRecommendedModelId = deviceEligibility.CanInstall
+                ? deviceEligibility.Plan?.Model.Id
+                : null;
 
             if (!deviceEligibility.CanInstall || deviceEligibility.Plan is null || deviceEligibility.SelectedGpu is null)
             {
@@ -401,6 +397,7 @@ public sealed partial class CapabilitiesPage : Page
         SetLocalAiOptionAvailability(isAvailable: true);
         _localAiSelectionEligible = eligibility.Status == LocalInferenceEligibilityStatus.Eligible;
         _config!.LocalAi.SelectedModelId ??= eligibility.Plan!.Model.Id;
+        _config.LocalAi.SelectedProfileId = eligibility.Plan!.Profile.Id;
         PopulateLocalAiModels();
         _suppressLocalAiToggle = true;
         LocalAiToggle.IsOn = _config!.LocalAi.Enabled;
@@ -630,21 +627,23 @@ public sealed partial class CapabilitiesPage : Page
         _suppressLocalAiSelection = true;
         LocalAiModelSelector.Items.Clear();
         int selectedIndex = 0;
-        LocalModelInfo[] fittingModels = LocalModelCatalog.Models
-            .Where(model =>
-                _localAiSelectedGpuCapacityBytes is { } capacityBytes &&
-                LocalInferenceEligibility.GetRequiredMemoryBytes(model) <= capacityBytes)
+        (LocalModelInfo Model, LocalInferencePlan Plan)[] fittingModels = LocalModelCatalog.Models
+            .Select(model => (Model: model, Eligibility: LocalInferenceEligibility.Evaluate(_localAiHardware!, model.Id)))
+            .Where(candidate => candidate.Eligibility.CanInstall && candidate.Eligibility.Plan is not null)
+            .Select(candidate => (candidate.Model, candidate.Eligibility.Plan!))
             .ToArray();
         for (int index = 0; index < fittingModels.Length; index++)
         {
-            LocalModelInfo model = fittingModels[index];
+            (LocalModelInfo model, LocalInferencePlan plan) = fittingModels[index];
             bool isRecommended = string.Equals(
                 _localAiRecommendedModelId,
                 model.Id,
                 StringComparison.OrdinalIgnoreCase);
             LocalAiModelSelector.Items.Add(new ComboBoxItem
             {
-                Content = $"{model.DisplayName} ({FormatSize(model.Weights.SizeBytes)})" +
+                Content = $"{model.DisplayName} ({FormatSize(model.Weights.SizeBytes)}, " +
+                    $"{FormatContext(plan.Profile.ContextTokens)}, " +
+                    $"{LocalModelCatalog.ToDisplayCacheType(plan.Profile.KeyCachePrecision)} KV)" +
                     (isRecommended ? " - Recommended" : string.Empty),
                 Tag = model.Id,
             });
@@ -731,30 +730,31 @@ public sealed partial class CapabilitiesPage : Page
         if (eligibility.Plan is not { } plan || eligibility.SelectedGpu is not { } gpu)
         {
             _localAiSelectionEligible = false;
+            _config!.LocalAi.SelectedProfileId = null;
             LocalAiHardwareStatusText.Text = "This model is not qualified for the detected hardware.";
             UpdatePrimaryButtonState();
             return;
         }
 
         _localAiSelectionEligible = eligibility.Status == LocalInferenceEligibilityStatus.Eligible;
+        _config!.LocalAi.SelectedProfileId = plan.Profile.Id;
         LocalAiHardwareStatusText.Text = eligibility.Status switch
         {
             LocalInferenceEligibilityStatus.Eligible =>
-                $"Detected {gpu.Name} with {FormatOptionalSize(eligibility.DetectedTotalMemoryBytes)}. " +
-                $"The selected model requires {FormatSize(eligibility.RequiredTotalMemoryBytes)}.",
+                $"{FormatMemorySize(eligibility.RequiredTotalMemoryBytes)} required \u00b7 " +
+                $"{FormatOptionalMemorySize(eligibility.DetectedTotalMemoryBytes)} CUDA-visible on {gpu.Name}",
             LocalInferenceEligibilityStatus.EligibleButBusy =>
-                $"Detected {gpu.Name}, but only {FormatOptionalSize(eligibility.AvailableFreeMemoryBytes)} of " +
-                $"{FormatSize(eligibility.RequiredFreeMemoryBytes)} required GPU memory is currently free. " +
+                $"Detected {gpu.Name}, but only {FormatOptionalMemorySize(eligibility.AvailableFreeMemoryBytes)} of " +
+                $"{FormatMemorySize(eligibility.RequiredFreeMemoryBytes)} required GPU memory is currently free. " +
                 "Close GPU applications and retry setup.",
             _ => DescribeLocalAiUnavailable(eligibility),
         };
         LocalAiEngineDetailText.Text =
             "llama-server for Windows; " +
-            $"{FormatSize(plan.Runtime.Artifacts.Sum(artifact => artifact.SizeBytes))} verified download";
+            $"{FormatSize(plan.Runtime.Artifacts.Sum(artifact => artifact.SizeBytes))} verified download; " +
+            "loads on first request";
         LocalAiModelDetailText.Text =
             $"{plan.Model.DisplayName}, {FormatSize(plan.Model.Weights.SizeBytes)} from Hugging Face";
-        LocalAiSettingsDetailText.Text =
-            $"{plan.Model.Recipe.ContextTokens / 1024}K context, FP16 KV cache, full CUDA offload, loads on first request";
         UpdatePrimaryButtonState();
     }
 
@@ -783,8 +783,18 @@ public sealed partial class CapabilitiesPage : Page
     private static string FormatSize(long bytes) =>
         $"{bytes / 1_000_000_000d:0.#} GB";
 
-    private static string FormatOptionalSize(long? bytes) =>
-        bytes is { } value ? FormatSize(value) : "an unknown amount";
+    private static string FormatMemorySize(long bytes) =>
+        $"{bytes / (1024d * 1024d * 1024d):0.#} GiB";
+
+    private static string FormatOptionalMemorySize(long? bytes) =>
+        bytes is { } value ? FormatMemorySize(value) : "an unknown amount";
+
+    private static string FormatContext(int tokens) =>
+        tokens % 1024 == 0
+            ? $"{tokens / 1024}K"
+            : tokens % 1000 == 0
+                ? $"{tokens / 1000}K"
+                : $"{tokens:N0} tokens";
 
     private void TailscaleToggle_Toggled(object sender, RoutedEventArgs e)
     {
