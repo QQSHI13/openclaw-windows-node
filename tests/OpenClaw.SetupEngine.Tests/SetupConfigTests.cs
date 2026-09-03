@@ -392,6 +392,21 @@ public class SetupConfigTests : IDisposable
         Assert.False(traySettings.NodeSttEnabled);
     }
 
+    /// <summary>
+    /// The install-review card's WSL title/description in CapabilitiesPage.xaml is a design-time
+    /// placeholder that CapabilitiesPage.xaml.cs immediately overwrites at runtime with
+    /// SetupReviewSummaryBuilder's DistroTitle/DistroDescription. This pins the default-config
+    /// runtime text to the same simplified copy so the two cannot drift again.
+    /// </summary>
+    [Fact]
+    public void SetupReviewSummary_DistroTitleAndDescription_MatchSimplifiedReviewCopy()
+    {
+        var summary = SetupReviewSummaryBuilder.Build(new SetupConfig());
+
+        Assert.Equal("Install Ubuntu 24.04 in WSL", summary.DistroTitle);
+        Assert.Equal("Creates a separate OpenClawGateway instance. Uses several GB.", summary.DistroDescription);
+    }
+
     [Fact]
     public void SetupReviewSummary_UsesActiveSetupConfig()
     {
@@ -433,6 +448,7 @@ public class SetupConfigTests : IDisposable
             Assert.Contains("CustomClaw", summary.ExactCommands);
             Assert.Contains("19999", summary.ExactCommands);
             Assert.Equal("CustomClaw · LAN:19999", summary.CompletionGatewaySummary);
+            Assert.Equal("Qwen 3.6 35B-A3B installed", summary.LocalAiTitle);
             Assert.StartsWith(
                 "llama-server for Windows · loads on first request · ",
                 summary.LocalAiDescription,

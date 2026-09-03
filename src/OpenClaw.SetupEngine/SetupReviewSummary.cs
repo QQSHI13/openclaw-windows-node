@@ -76,8 +76,8 @@ public static class SetupReviewSummaryBuilder
             : [];
 
         var summary = new SetupReviewSummary(
-            DistroTitle: $"Install an isolated {baseDistro} instance",
-            DistroDescription: $"WSL distro \"{distroName}\" at {installPath}. Separate from any Linux distributions you already have. Disk use grows dynamically and is typically several GB.",
+            DistroTitle: $"Install {baseDistro.Replace('-', ' ')} in WSL",
+            DistroDescription: $"Creates a separate {distroName} instance. Uses several GB.",
             InstallerDescription: installerDescription,
             InstallerBadge: installerBadge,
             GatewayDescription: gatewayDescription,
@@ -105,7 +105,7 @@ public static class SetupReviewSummaryBuilder
         {
             LocalAiEnabled = config.LocalAi.Enabled,
             LocalAiTitle = config.LocalAi.Enabled
-                ? $"Local AI verified with {localAiModel.DisplayName}"
+                ? $"{DisplayModelName(localAiModel)} installed"
                 : null,
             LocalAiDescription = config.LocalAi.Enabled
                 ? localAiProfile is null
@@ -116,6 +116,20 @@ public static class SetupReviewSummaryBuilder
                         $"{FormatKvCache(localAiProfile)}"
                 : null,
         };
+    }
+
+    public static string DisplayModelName(LocalModelInfo model)
+    {
+        string displayName = model.DisplayName;
+        int detailStart = displayName.IndexOf(" (", StringComparison.Ordinal);
+        if (detailStart >= 0)
+            displayName = displayName[..detailStart];
+        if (displayName.StartsWith("Qwen", StringComparison.Ordinal) &&
+            displayName.Length > 4 && char.IsDigit(displayName[4]))
+        {
+            displayName = displayName.Insert(4, " ");
+        }
+        return displayName;
     }
 
     private static string FormatContext(int tokens) =>

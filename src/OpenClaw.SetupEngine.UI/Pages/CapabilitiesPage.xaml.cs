@@ -641,10 +641,11 @@ public sealed partial class CapabilitiesPage : Page
                 StringComparison.OrdinalIgnoreCase);
             LocalAiModelSelector.Items.Add(new ComboBoxItem
             {
-                Content = $"{model.DisplayName} ({FormatSize(model.Weights.SizeBytes)}, " +
+                Content = $"{SetupReviewSummaryBuilder.DisplayModelName(model)} " +
+                    $"({FormatSize(model.Weights.SizeBytes)}, " +
                     $"{FormatContext(plan.Profile.ContextTokens)}, " +
                     $"{LocalModelCatalog.ToDisplayCacheType(plan.Profile.KeyCachePrecision)} KV)" +
-                    (isRecommended ? " - Recommended" : string.Empty),
+                    (isRecommended ? " (Recommended)" : string.Empty),
                 Tag = model.Id,
             });
             string? selectedModelId = _config!.LocalAi.SelectedModelId ?? _localAiRecommendedModelId;
@@ -741,7 +742,7 @@ public sealed partial class CapabilitiesPage : Page
         LocalAiHardwareStatusText.Text = eligibility.Status switch
         {
             LocalInferenceEligibilityStatus.Eligible =>
-                $"{FormatMemorySize(eligibility.RequiredTotalMemoryBytes)} required \u00b7 " +
+                $"{FormatMemorySize(eligibility.RequiredTotalMemoryBytes)} required · " +
                 $"{FormatOptionalMemorySize(eligibility.DetectedTotalMemoryBytes)} CUDA-visible on {gpu.Name}",
             LocalInferenceEligibilityStatus.EligibleButBusy =>
                 $"Detected {gpu.Name}, but only {FormatOptionalMemorySize(eligibility.AvailableFreeMemoryBytes)} of " +
@@ -754,7 +755,8 @@ public sealed partial class CapabilitiesPage : Page
             $"{FormatSize(plan.Runtime.Artifacts.Sum(artifact => artifact.SizeBytes))} verified download; " +
             "loads on first request";
         LocalAiModelDetailText.Text =
-            $"{plan.Model.DisplayName}, {FormatSize(plan.Model.Weights.SizeBytes)} from Hugging Face";
+            $"{SetupReviewSummaryBuilder.DisplayModelName(plan.Model)}, " +
+            $"{FormatSize(plan.Model.Weights.SizeBytes)} from Hugging Face";
         UpdatePrimaryButtonState();
     }
 

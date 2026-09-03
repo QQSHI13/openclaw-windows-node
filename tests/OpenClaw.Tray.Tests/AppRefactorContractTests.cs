@@ -1172,11 +1172,11 @@ public sealed class AppRefactorContractTests
 
         AssertInOrder(
             code,
-            "(\"wsl-platform\", \"Prepare and verify WSL platform\", [\"ensure-wsl-platform\"])",
-            "(\"local-ai-engine\", \"Install verified llama-server\"",
-            "(\"local-ai-model\", \"Download verified model from Hugging Face\"");
+            "(\"wsl-platform\", \"Prepare WSL\", [\"ensure-wsl-platform\"])",
+            "(\"local-ai-engine\", \"Install Local AI\"",
+            "(\"local-ai-model\", \"Download AI model\"");
         Assert.Contains(
-            "(\"wsl-networking\", \"Configure WSL access to Local AI\", [\"configure-local-ai-wsl-networking\"])",
+            "(\"wsl-networking\", \"Connect WSL to Local AI\", [\"configure-local-ai-wsl-networking\"])",
             code);
         Assert.DoesNotContain("Verify Local AI before WSL setup", code);
     }
@@ -1447,8 +1447,12 @@ public sealed class AppRefactorContractTests
         Assert.Contains("eligibility.RequiredTotalMemoryBytes", diagnostics);
         Assert.Contains("eligibility.DetectedTotalMemoryBytes", diagnostics);
         Assert.Contains("model weights, KV cache, and runtime workspace", resources);
+        Assert.Contains("SetupReviewSummaryBuilder.DisplayModelName(model)", source);
+        Assert.Contains("(isRecommended ? \" (Recommended)\" : string.Empty)", source);
+        Assert.Contains("SetupReviewSummaryBuilder.DisplayModelName(plan.Model)", source);
         Assert.Contains("bytes / (1024d * 1024d * 1024d)", diagnostics);
         Assert.Contains("GiB", resources);
+        Assert.DoesNotContain(" ({FormatSize(model.Weights.SizeBytes)})", source);
         Assert.DoesNotContain("2 GiB runtime margin", source);
         Assert.DoesNotContain("HardwareProfile", source);
         Assert.DoesNotContain("RTX PRO 6000", source);
