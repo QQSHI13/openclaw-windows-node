@@ -6,6 +6,7 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -1198,3 +1199,60 @@ jobs:
           1. Run the installer for your architecture
           2. Launch from Start Menu or system tray
           3. Right-click tray icon → Settings to configure
+
+    - name: Retain alpha releases for 30 days
+      if: needs.metadata.outputs.isPrerelease == 'true' && contains(github.ref_name, '-alpha.')
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+
+        releases_json="$(
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
+            jq -s 'add'
+        )"
+        current_release_count="$(
+          jq --arg tag "$GITHUB_REF_NAME" '
+            map(select(.draft == false and .prerelease == true and .tag_name == $tag))
+            | length
+          ' <<< "$releases_json"
+        )"
+        if [[ "$current_release_count" != "1" ]]; then
+          echo "::warning::Current alpha release $GITHUB_REF_NAME is not visible yet; deferring retention cleanup."
+          exit 0
+        fi
+
+        while IFS=$'\t' read -r release_id stale_tag; do
+          if [[ -z "$release_id" ]]; then
+            continue
+          fi
+          echo "Deleting old alpha release $stale_tag; retaining its Git tag."
+          deleted=false
+          for attempt in 1 2 3; do
+            if gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/$release_id"; then
+              deleted=true
+              break
+            fi
+            echo "::warning::Attempt $attempt could not delete old alpha release $stale_tag."
+            if [[ "$attempt" -lt 3 ]]; then
+              sleep $((attempt * 5))
+            fi
+          done
+          if [[ "$deleted" != "true" ]]; then
+            echo "::warning::Retention cleanup for $stale_tag will retry after the next alpha publication."
+          fi
+        done < <(
+          jq -r '
+            map(select(
+              .draft == false and
+              .prerelease == true and
+              (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-alpha\\.[0-9]+$")) and
+              ((.published_at | fromdateiso8601) < (now - (30 * 24 * 60 * 60)))
+            ))
+            | sort_by(.published_at)
+            | .[]
+            | [.id, .tag_name]
+            | @tsv
+          ' <<< "$releases_json"
+        )
